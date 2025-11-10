@@ -11,6 +11,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.lang.NonNull;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
@@ -18,13 +20,13 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.UUID;
 
 /**
- * This is the "Customer Portal Bouncer."
- * This filter runs on all non-admin routes.
- * It reads the JWT and validates it against the 'clients' table
- * *using the vendor context* provided in the token.
+ * v3 (Corrected):
+ * This filter now correctly reads the 'role' claim FROM THE JWT
+ * to build the user's authorities.
  */
 @Component
 public class JwtClientFilter extends OncePerRequestFilter {
@@ -48,47 +50,48 @@ public class JwtClientFilter extends OncePerRequestFilter {
     ) throws ServletException, IOException {
 
         final String authHeader = request.getHeader("Authorization");
-        final String jwt;
-        final String userEmail;
-
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
             filterChain.doFilter(request, response);
             return;
         }
 
-        jwt = authHeader.substring(7);
+        final String jwt = authHeader.substring(7);
+        final String userEmail;
 
         try {
             userEmail = jwtService.extractUsername(jwt);
 
             if (userEmail != null && SecurityContextHolder.getContext().getAuthentication() == null) {
 
-                // --- This is the key "Air-Gap" logic ---
                 Claims claims = jwtService.extractAllClaims(jwt);
                 String role = claims.get("role", String.class);
                 String vendorIdStr = claims.get("vendorId", String.class);
 
-                // We ONLY proceed if this is a CLIENT token and has a vendorId
+                // We ONLY proceed if this is a CLIENT token
                 if ("ROLE_CUSTOMER".equals(role) && vendorIdStr != null) {
 
                     UUID vendorId = UUID.fromString(vendorIdStr);
 
-                    // Use the custom method to load from the 'clients' table
                     UserDetails userDetails = this.clientUserDetailsService
                             .loadClientByEmailAndVendor(userEmail, vendorId);
 
                     if (jwtService.isTokenValid(jwt, userDetails)) {
 
+                        // 1. Create the authority from the role IN THE TOKEN
+                        List<GrantedAuthority> authorities = List.of(new SimpleGrantedAuthority(role));
+
+                        // 2. Create the auth token with the *correct* contextual role
                         UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
                                 userDetails,
                                 jwt, // Store the token in the credentials
-                                userDetails.getAuthorities() // This will be 'ROLE_CUSTOMER'
+                                authorities // Use the role from the token
                         );
 
                         authToken.setDetails(
                                 new WebAuthenticationDetailsSource().buildDetails(request)
                         );
 
+                        // 3. Set the user in the SecurityContext.
                         SecurityContextHolder.getContext().setAuthentication(authToken);
                     }
                 } else {
@@ -96,7 +99,6 @@ public class JwtClientFilter extends OncePerRequestFilter {
                 }
             }
         } catch (Exception e) {
-            // Correct, professional logging:
             logger.warn("Cannot set client user authentication", e);
         }
 

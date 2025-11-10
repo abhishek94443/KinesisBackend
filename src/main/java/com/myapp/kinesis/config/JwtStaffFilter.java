@@ -11,6 +11,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.lang.NonNull;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
@@ -18,11 +20,13 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.util.List;
 
 /**
- * v2 (Corrected): Stores the raw JWT token in the 'credentials'
- * field of the Authentication object. This allows our TenantInterceptor
- * to access the token without having to re-parse the header.
+ * v3 (Corrected):
+ * This filter now correctly reads the 'role' claim FROM THE JWT
+ * and uses that to build the user's authorities. This is the
+ * core of our "Contextual Authorization" and fixes the 403 bug.
  */
 @Component
 public class JwtStaffFilter extends OncePerRequestFilter {
@@ -46,15 +50,13 @@ public class JwtStaffFilter extends OncePerRequestFilter {
     ) throws ServletException, IOException {
 
         final String authHeader = request.getHeader("Authorization");
-        final String jwt;
-        final String userEmail;
-
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
             filterChain.doFilter(request, response);
             return;
         }
 
-        jwt = authHeader.substring(7);
+        final String jwt = authHeader.substring(7);
+        final String userEmail;
 
         try {
             userEmail = jwtService.extractUsername(jwt);
@@ -64,27 +66,31 @@ public class JwtStaffFilter extends OncePerRequestFilter {
                 UserDetails userDetails = this.staffUserDetailsService.loadUserByUsername(userEmail);
 
                 if (jwtService.isTokenValid(jwt, userDetails)) {
+                    // --- THIS IS THE CRITICAL FIX ---
                     Claims claims = jwtService.extractAllClaims(jwt);
                     String role = claims.get("role", String.class);
 
-                    if (role != null && (role.equals("ROLE_VENDOR_OWNER") || role.equals("ROLE_STAFF") || role.equals("ROLE_SUPERADMIN"))) {
+                    // We must ensure this is a Staff-type token
+                    if (role != null && role.startsWith("ROLE_")) {
 
-                        // THIS IS THE CORRECTION:
-                        // We store the 'userDetails' as the principal
-                        // We store the raw 'jwt' token as the credentials
+                        // 1. Create the authority from the role IN THE TOKEN
+                        List<GrantedAuthority> authorities = List.of(new SimpleGrantedAuthority(role));
+
+                        // 2. Create the auth token with the *correct* contextual role
                         UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
                                 userDetails,
-                                jwt, // <-- Store the token here
-                                userDetails.getAuthorities()
+                                jwt, // Store the token in the credentials for the interceptor
+                                authorities // Use the role from the token
                         );
 
                         authToken.setDetails(
                                 new WebAuthenticationDetailsSource().buildDetails(request)
                         );
 
+                        // 3. Set the user in the SecurityContext.
                         SecurityContextHolder.getContext().setAuthentication(authToken);
                     } else {
-                        logger.warn("JWT is valid but is not a Staff token. Denying access.");
+                        logger.warn("JWT is valid but is missing a valid 'role' claim. Denying access.");
                     }
                 }
             }

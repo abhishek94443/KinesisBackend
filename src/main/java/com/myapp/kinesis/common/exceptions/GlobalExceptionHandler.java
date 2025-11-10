@@ -8,7 +8,10 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.lang.NonNull;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.authorization.AuthorizationDeniedException;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -18,45 +21,42 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
 import java.util.HashMap;
 import java.util.Map;
 
-/**
- * Global Exception Handler (@RestControllerAdvice).
- * This class acts as a "master safety net" for all @RestControllers.
- * It intercepts exceptions and formats them into a clean ApiResponse JSON.
- */
 @RestControllerAdvice
 public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
     private static final Logger logger = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
+    // --- NEW HANDLER FOR 403 ERRORS ---
+
     /**
-     * Handles our custom "Wrong Silo" (401) exception.
+     * Handles AuthorizationDeniedException (from @PreAuthorize) and
+     * AccessDeniedException (general Spring Security).
+     * This fixes the 500 error from our test.
      */
+    @ExceptionHandler({AuthorizationDeniedException.class, AccessDeniedException.class})
+    public ResponseEntity<ApiResponse<?>> handleAccessDenied(Exception ex) {
+        logger.warn("Access Denied: {}", ex.getMessage());
+        return new ResponseEntity<>(ApiResponse.error("Access Denied: You do not have the required role to perform this action."), HttpStatus.FORBIDDEN);
+    }
+
     @ExceptionHandler(TenantAccessDeniedException.class)
     public ResponseEntity<ApiResponse<?>> handleTenantAccessDenied(TenantAccessDeniedException ex) {
         logger.warn("Tenant Access Denied: {}", ex.getMessage());
         return new ResponseEntity<>(ApiResponse.error(ex.getMessage()), HttpStatus.UNAUTHORIZED);
     }
 
-    /**
-     * Handles Spring Security's "Wrong Password" exception.
-     */
-    @ExceptionHandler(BadCredentialsException.class)
-    public ResponseEntity<ApiResponse<?>> handleBadCredentials(BadCredentialsException ex) {
+    @ExceptionHandler({BadCredentialsException.class, UsernameNotFoundException.class})
+    public ResponseEntity<ApiResponse<?>> handleAuthExceptions(Exception ex) {
+        // We treat "user not found" and "bad password" as the same error
+        // to prevent attackers from guessing valid email addresses.
         return new ResponseEntity<>(ApiResponse.error("Invalid email or password."), HttpStatus.UNAUTHORIZED);
     }
 
-    /**
-     * Handles our custom "Not Found" (404) exception.
-     */
     @ExceptionHandler(ResourceNotFoundException.class)
     public ResponseEntity<ApiResponse<?>> handleResourceNotFound(ResourceNotFoundException ex) {
         return new ResponseEntity<>(ApiResponse.error(ex.getMessage()), HttpStatus.NOT_FOUND);
     }
 
-    /**
-     * Handles DTO @Valid annotation failures (400).
-     * This overrides the default Spring implementation to return our custom ApiResponse.
-     */
     @Override
     protected ResponseEntity<Object> handleMethodArgumentNotValid(
             MethodArgumentNotValidException ex, @NonNull HttpHeaders headers,
@@ -68,15 +68,12 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         );
 
         logger.warn("Validation failed: {}", errors);
-        return new ResponseEntity<>(ApiResponse.error("Validation Failed: " + errors), HttpStatus.BAD_REQUEST);
+        String firstErrorMessage = errors.values().stream().findFirst().orElse("Invalid request.");
+        return new ResponseEntity<>(ApiResponse.error("Validation Failed: " + firstErrorMessage), HttpStatus.BAD_REQUEST);
     }
 
-    /**
-     * A general-purpose "catch-all" for any other 500-level server error.
-     */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<?>> handleGlobalException(Exception ex) {
-        // We log the full stack trace for 500 errors, as they are unexpected.
         logger.error("An unexpected internal server error occurred", ex);
         return new ResponseEntity<>(ApiResponse.error("An unexpected internal server error occurred."), HttpStatus.INTERNAL_SERVER_ERROR);
     }
