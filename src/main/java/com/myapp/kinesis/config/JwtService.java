@@ -1,8 +1,12 @@
 package com.myapp.kinesis.config;
 
-import io.jsonwebtoken.Claims;
-import io.jsonwebtoken.Jwts;
+import com.myapp.kinesis.common.exceptions.JwtTokenExpiredException;
+import com.myapp.kinesis.common.exceptions.JwtTokenValidationException;
+import io.jsonwebtoken.*;
 import io.jsonwebtoken.security.Keys;
+import jakarta.annotation.PostConstruct;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
@@ -11,15 +15,21 @@ import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
 import java.util.Date;
 import java.util.Map;
+import java.util.UUID;
 import java.util.function.Function;
 
 /**
- * Service component responsible for all JWT operations (0.12.x).
- * This is the "Key Maker" and "Validator" for our system.
- * It is used by both the Staff and Customer auth flows.
+ * v3 (Hardened): Implements reviewer feedback.
+ * - Adds explicit HS256 algorithm.
+ * - Adds 'jti' (JWT ID) and 'iss' (Issuer) claims.
+ * - Adds robust exception handling for parsing.
+ * - Adds a startup check for JWT secret strength.
+ * - (THIS FIX) Adds 60-second clock skew tolerance.
  */
 @Service
 public class JwtService {
+
+    private static final Logger logger = LoggerFactory.getLogger(JwtService.class);
 
     @Value("${app.jwt.secret}")
     private String jwtSecret;
@@ -27,77 +37,100 @@ public class JwtService {
     @Value("${app.jwt.expiration-ms}")
     private long jwtExpirationInMs;
 
+    private SecretKey signingKey;
+
+    private static final String ISSUER = "kinesis-api";
+    private static final int MIN_SECRET_LENGTH_BYTES = 32; // 256 bits for HS256
+    private static final long CLOCK_SKEW_SECONDS = 60; // 1 minute grace period
+
     /**
-     * Creates a secure signing key from the application's secret string.
+     * This method runs *after* @Value injection.
+     * It validates our secret key strength. We will fail-fast.
      */
-    private SecretKey getSigningKey() {
+    @PostConstruct
+    public void init() {
         byte[] keyBytes = this.jwtSecret.getBytes(StandardCharsets.UTF_8);
-        return Keys.hmacShaKeyFor(keyBytes);
+
+        if (keyBytes.length < MIN_SECRET_LENGTH_BYTES) {
+            logger.error("FATAL: JWT secret is too weak! Must be at least {} bytes (256 bits) for HS256.", MIN_SECRET_LENGTH_BYTES);
+            throw new IllegalStateException("JWT secret is not secure. Application startup failed.");
+        }
+
+        this.signingKey = Keys.hmacShaKeyFor(keyBytes);
+        logger.info("JWT Service initialized with HS256 algorithm.");
     }
 
     // --- Token Generation ---
 
-    /**
-     * Generates a JWT for a given subject (email) and custom claims.
-     * This is the central method for creating all tokens.
-     */
     public String generateToken(Map<String, Object> claims, UserDetails userDetails) {
         Date now = new Date();
         Date expiryDate = new Date(now.getTime() + jwtExpirationInMs);
 
         return Jwts.builder()
                 .claims(claims)
-                .subject(userDetails.getUsername()) // The user's email
+                .subject(userDetails.getUsername())
                 .issuedAt(now)
                 .expiration(expiryDate)
-                .signWith(getSigningKey())
+                .id(UUID.randomUUID().toString())      // jti: JWT ID
+                .issuer(ISSUER)                      // iss: Who issued this
+                .signWith(signingKey, SignatureAlgorithm.HS256) // Explicit algorithm
                 .compact();
     }
 
     // --- Token Validation & Parsing ---
 
-    /**
-     * Validates a JWT. Checks signature, expiration, and subject.
-     */
     public boolean isTokenValid(String token, UserDetails userDetails) {
-        final String username = extractUsername(token);
-        return (username.equals(userDetails.getUsername()) && !isTokenExpired(token));
+        try {
+            final String username = extractUsername(token);
+            // We still check isTokenExpired for an extra layer of logic,
+            // but the parser's clock skew will handle the validation.
+            return (username.equals(userDetails.getUsername()) && !isTokenExpired(token));
+        } catch (JwtTokenValidationException | JwtTokenExpiredException e) {
+            return false;
+        }
     }
 
     private boolean isTokenExpired(String token) {
-        return extractExpiration(token).before(new Date());
+        // We add our *own* clock skew check here to be safe
+        // (This check is now less critical as the parser handles it,
+        // but it's good defense-in-depth)
+        Date expiration = extractExpiration(token);
+        Date nowWithSkew = new Date(System.currentTimeMillis() - (CLOCK_SKEW_SECONDS * 1000));
+        return expiration.before(nowWithSkew);
     }
 
-    /**
-     * Extracts the username (subject) from the token.
-     */
     public String extractUsername(String token) {
         return extractClaim(token, Claims::getSubject);
     }
 
-    /**
-     * Extracts the expiration date from the token.
-     */
     public Date extractExpiration(String token) {
         return extractClaim(token, Claims::getExpiration);
     }
 
-    /**
-     * Extracts all claims from a token.
-     */
     public Claims extractAllClaims(String token) {
-        // This is the modern parser for jjwt 0.12.x
-        return Jwts.parser()
-                .verifyWith(getSigningKey())
-                .build()
-                .parseSignedClaims(token)
-                .getPayload();
+        try {
+            return Jwts.parser()
+                    .verifyWith(signingKey)
+                    // --- THIS IS THE FIX ---
+                    // Allow for a 60-second clock difference
+                    // between the server that *issued* the token
+                    // and this server (the *validator*).
+                    .clockSkewSeconds(CLOCK_SKEW_SECONDS)
+                    .build()
+                    .parseSignedClaims(token)
+                    .getPayload();
+        } catch (ExpiredJwtException e) {
+            logger.warn("JWT token has expired: {}", e.getMessage());
+            throw new JwtTokenExpiredException("JWT token has expired", e);
+        } catch (JwtException e) {
+            logger.warn("Invalid JWT token: {}", e.getMessage());
+            throw new JwtTokenValidationException("Invalid JWT token: " + e.getMessage(), e);
+        } catch (IllegalArgumentException e) {
+            logger.warn("JWT claims string is empty: {}", e.getMessage());
+            throw new JwtTokenValidationException("Invalid JWT token: claims empty", e);
+        }
     }
 
-    /**
-     * A generic function to extract a specific claim from a token.
-     * e.g., extractClaim(token, claims -> claims.get("vendorId", String.class))
-     */
     public <T> T extractClaim(String token, Function<Claims, T> claimsResolver) {
         final Claims claims = extractAllClaims(token);
         return claimsResolver.apply(claims);

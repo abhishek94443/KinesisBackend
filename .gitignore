@@ -1,27 +1,20 @@
-# IntelliJ IDEA
+# --- This is the most important line ---
+# Exclude the environment file from Git
+/.env
+
+# --- Standard Java & Maven ---
+/target/
+*.jar
+*.war
+*.ear
+
+# --- IDE Files (IntelliJ, VS Code) ---
 .idea/
 *.iml
-out/
+.classpath
+.project
+.settings/
+.vscode/
 
-# Maven
-target/
-
-# Gradle
-build/
-
-# Logs
+# --- Log files ---
 *.log
-
-# OS Files
-.DS_Store
-Thumbs.db
-
-# Environment / config files
-application.properties
-application.yml
-
-# Temporary files
-*.tmp
-*.bak
-*.swp
-

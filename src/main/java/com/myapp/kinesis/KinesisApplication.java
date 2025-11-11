@@ -2,12 +2,18 @@ package com.myapp.kinesis;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
-import org.springframework.data.jpa.repository.config.EnableJpaAuditing;
-import org.springframework.scheduling.annotation.EnableScheduling;
 
+/**
+ * The main entry point for the Kinesis SaaS Backend.
+ *
+ * @SpringBootApplication is a master annotation that includes:
+ * - @Configuration: Tags this as a Spring configuration class.
+ * - @EnableAutoConfiguration: Tells Spring Boot to automatically configure
+ * beans based on our pom.xml dependencies (like Tomcat, JPA, Security).
+ * - @ComponentScan: Tells Spring to scan this package (and all sub-packages)
+ * for our @Component, @Service, @Repository, and @RestController beans.
+ */
 @SpringBootApplication
-@EnableJpaAuditing // Enables automatic setting of createdAt/updatedAt fields
-@EnableScheduling // Enables @Scheduled for cron jobs (like our "No-Show" checker)
 public class KinesisApplication {
 
     public static void main(String[] args) {
