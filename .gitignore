@@ -1,0 +1,20 @@
+# --- This is the most important line ---
+# Exclude the environment file from Git
+/.env
+
+# --- Standard Java & Maven ---
+/target/
+*.jar
+*.war
+*.ear
+
+# --- IDE Files (IntelliJ, VS Code) ---
+.idea/
+*.iml
+.classpath
+.project
+.settings/
+.vscode/
+
+# --- Log files ---
+*.log
