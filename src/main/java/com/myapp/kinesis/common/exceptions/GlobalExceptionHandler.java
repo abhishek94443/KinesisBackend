@@ -23,17 +23,32 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
- * v4 (Hardened): Implements reviewer feedback.
- * - (Fix 4) Catches the new JwtTokenExpiredException and JwtTokenValidationException.
- * - (Fix 4) Catches DataIntegrityViolationException for 409 CONFLICT.
- * - (Fix 4) Returns a full map of validation errors instead of just the first one.
+ * v4 (Corrected):
+ * - Added handler for IllegalStateException (to fix 500 on double booking).
+ * - Added handler for SecurityException (to fix 500 on tenant isolation).
  */
 @RestControllerAdvice
 public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
     private static final Logger logger = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
-    // --- NEW HANDLERS FOR JWT FAILURES (Fix 4) ---
+    // --- NEW HANDLER FOR BUG 3 (Tenant Isolation) ---
+    @ExceptionHandler(SecurityException.class)
+    public ResponseEntity<ApiResponse<?>> handleSecurityException(SecurityException ex) {
+        // This catches our "Cannot link resource from another vendor."
+        logger.warn("Security Exception (Tenant Isolation Failure): {}", ex.getMessage());
+        return new ResponseEntity<>(ApiResponse.error(ex.getMessage()), HttpStatus.UNAUTHORIZED);
+    }
+
+    // --- NEW HANDLER FOR BUG 2 (Business Logic) ---
+    @ExceptionHandler(IllegalStateException.class)
+    public ResponseEntity<ApiResponse<?>> handleIllegalState(IllegalStateException ex) {
+        // This catches our "Slot no longer available" error.
+        logger.warn("Business Logic Exception: {}", ex.getMessage());
+        return new ResponseEntity<>(ApiResponse.error(ex.getMessage()), HttpStatus.BAD_REQUEST);
+    }
+
+    // --- Existing JWT/Auth Handlers ---
     @ExceptionHandler(JwtTokenExpiredException.class)
     public ResponseEntity<ApiResponse<?>> handleJwtExpired(JwtTokenExpiredException ex) {
         return new ResponseEntity<>(ApiResponse.error(ex.getMessage()), HttpStatus.UNAUTHORIZED);
@@ -44,15 +59,12 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return new ResponseEntity<>(ApiResponse.error(ex.getMessage()), HttpStatus.UNAUTHORIZED);
     }
 
-    // --- NEW HANDLER FOR DATABASE CONFLICTS (Fix 4) ---
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ResponseEntity<ApiResponse<?>> handleConflict(DataIntegrityViolationException ex) {
-        // This catches our UNIQUE constraint violations (e.g., duplicate email or slug)
         logger.warn("Data integrity violation: {}", ex.getMessage());
         return new ResponseEntity<>(ApiResponse.error("Conflict: This resource (e.g., email or slug) already exists."), HttpStatus.CONFLICT);
     }
 
-    // --- EXISTING HANDLERS ---
     @ExceptionHandler(TenantAccessDeniedException.class)
     public ResponseEntity<ApiResponse<?>> handleTenantAccessDenied(TenantAccessDeniedException ex) {
         logger.warn("Tenant Access Denied: {}", ex.getMessage());
@@ -77,18 +89,15 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<ApiResponse<?>> handleIllegalArgument(IllegalArgumentException ex) {
+        // Catches "Email already in use"
         return new ResponseEntity<>(ApiResponse.error(ex.getMessage()), HttpStatus.BAD_REQUEST);
     }
 
-    /**
-     * (Fix 4) Upgraded to return a full map of validation errors.
-     */
     @Override
     protected ResponseEntity<Object> handleMethodArgumentNotValid(
             MethodArgumentNotValidException ex, @NonNull HttpHeaders headers,
             @NonNull HttpStatusCode status, @NonNull WebRequest request) {
 
-        // This is a cleaner way to get all errors
         Map<String, String> errors = ex.getBindingResult().getFieldErrors().stream()
                 .collect(Collectors.toMap(
                         fieldError -> fieldError.getField(),
@@ -96,8 +105,6 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 ));
 
         logger.warn("Validation failed: {}", errors);
-
-        // We create a new ApiResponse where the 'data' field *is* the map of errors
         ApiResponse<?> errorResponse = new ApiResponse<>(false, "Validation Failed", errors, null);
         return new ResponseEntity<>(errorResponse, HttpStatus.BAD_REQUEST);
     }

@@ -105,7 +105,15 @@ public class ClientAuthService {
         claims.put("role", contextualRole);
 
         String jwt = jwtService.generateToken(claims, client);
-
-        return new LoginResponse(jwt, contextualRole, client.getEmail(), client.getId(), vendorId);
+        return new LoginResponse(
+                jwt,
+                contextualRole,
+                client.getEmail(),
+                client.getId(),
+                vendorId,
+                vendor.getVendorName(), // <--- Correct Business Name
+                vendor.getSlug()        // <--- Correct Slug
+        );
+//        return new LoginResponse(jwt, contextualRole, client.getEmail(), client.getId(), vendorId);
     }
 }
