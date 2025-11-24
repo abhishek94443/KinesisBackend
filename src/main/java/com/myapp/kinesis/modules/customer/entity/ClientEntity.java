@@ -39,7 +39,7 @@ public class ClientEntity implements UserDetails {
     private UUID id;
 
     /**
-     * The Vendor (tenant) that "owns" this client record.
+     * The Vendor (tenant) that "owns" this customer record.
      * This is the primary key for all isolation.
      */
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
@@ -109,7 +109,7 @@ public class ClientEntity implements UserDetails {
 
     @Override
     public boolean isAccountNonLocked() {
-        // If a vendor blocks a client, we can lock their account here.
+        // If a vendor blocks a customer, we can lock their account here.
         return !"BLOCKED_BY_VENDOR".equals(this.status);
     }
 
@@ -120,7 +120,7 @@ public class ClientEntity implements UserDetails {
 
     @Override
     public boolean isEnabled() {
-        // A client account is only "enabled" if it has a password.
+        // A customer account is only "enabled" if it has a password.
         // A guest profile (password=null) cannot be used to log in.
         return this.password != null;
     }

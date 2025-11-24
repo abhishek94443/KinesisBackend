@@ -14,18 +14,18 @@ import java.util.UUID;
 public interface ClientRepository extends JpaRepository<ClientEntity, UUID> {
 
     /**
-     * Finds a client profile based on their email *and* the vendor they belong to.
+     * Finds a customer profile based on their email *and* the vendor they belong to.
      * This is the primary query for the CUSTOMER login flow.
      */
     Optional<ClientEntity> findByVendorIdAndEmail(UUID vendorId, String email);
 
     /**
-     * Finds a client profile based on their phone number *and* the vendor they belong to.
+     * Finds a customer profile based on their phone number *and* the vendor they belong to.
      */
     Optional<ClientEntity> findByVendorIdAndPhone(UUID vendorId, String phone);
 
     /**
-     * Checks if a client with this email already exists *at this vendor*.
+     * Checks if a customer with this email already exists *at this vendor*.
      */
     boolean existsByVendorIdAndEmail(UUID vendorId, String email);
 

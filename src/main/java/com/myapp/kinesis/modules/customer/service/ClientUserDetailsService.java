@@ -41,7 +41,7 @@ public class ClientUserDetailsService implements UserDetailsService {
 
     /**
      * This is our CUSTOM load method that the 'ClientAuthService' will use.
-     * It correctly finds a client using their email AND their vendor's ID.
+     * It correctly finds a customer using their email AND their vendor's ID.
      */
     public UserDetails loadClientByEmailAndVendor(String email, UUID vendorId) throws UsernameNotFoundException {
         return clientRepository.findByVendorIdAndEmail(vendorId, email)

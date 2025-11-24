@@ -8,46 +8,32 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import java.util.List;
 
-/**
- * Global Cross-Origin Resource Sharing (CORS) configuration.
- * This file defines a bean that tells our backend which frontend domains
- * are allowed to make requests to our API.
- */
 @Configuration
 public class CorsConfig {
 
-    /**
-     * This bean is automatically injected into the SecurityFilterChain
-     * in WebSecurityConfig.
-     */
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
 
-        // 1. Define allowed origins (your frontend URLs)
-        // We MUST be specific for a professional app.
-        // We include "localhost" ports for local development.
-        configuration.setAllowedOrigins(List.of(
-                "http://localhost:3000", // Common for React
-                "http://localhost:5173", // Common for Vite (React/Vue)
-                "http://localhost:8081", // Common for Angular
-                "https-admin.kinesis.io", // Your (future) admin PWA
-                "https-app.kinesis.io"    // Your (future) customer PWA
-        ));
+        // CHANGE 1: Use setAllowedOriginPatterns("*")
+        // This is the magic fix. It allows requests from ANY source during dev
+        // but still supports 'AllowCredentials=true'.
+        configuration.setAllowedOriginPatterns(List.of("*"));
 
-        // 2. Define allowed HTTP methods
+        // CHANGE 2: Explicitly allow all standard methods
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"));
 
-        // 3. Define allowed headers
-        // We must allow "Authorization" (for our JWT) and "Content-Type".
-        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-Requested-With"));
+        // CHANGE 3: Allow all headers (Authorization is the key one)
+        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-Requested-With", "Accept", "Origin", "Access-Control-Request-Method", "Access-Control-Request-Headers"));
 
-        // 4. Allow credentials (cookies, auth tokens)
+        // CHANGE 4: Expose headers so the frontend can see them
+        configuration.setExposedHeaders(List.of("Access-Control-Allow-Origin", "Access-Control-Allow-Credentials"));
+
         configuration.setAllowCredentials(true);
 
-        // 5. Register this configuration for all /api/ paths
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration("/api/**", configuration);
+        // Apply to ALL routes, not just /api/**, to be safe
+        source.registerCorsConfiguration("/**", configuration);
 
         return source;
     }

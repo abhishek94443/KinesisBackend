@@ -13,7 +13,7 @@ import java.util.UUID;
 /**
  * Represents a Vendor (a tenant) in the system (e.g., a clinic, a gym).
  * This entity maps to the 'vendors' table.
- * This is the "silo" that holds all of a client's data.
+ * This is the "silo" that holds all of a customer's data.
  */
 @Entity
 @Table(name = "vendors")
@@ -35,6 +35,11 @@ public class VendorEntity {
      */
     @Column(name = "slug", unique = true, nullable = false)
     private String slug;
+    // NEW: Stores the JSON configuration for their website
+    // We use 'columnDefinition = "jsonb"' for PostgreSQL
+    @Column(name = "website_config", columnDefinition = "jsonb")
+    @org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.JSON)
+    private String websiteConfig;
 
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "settings", columnDefinition = "jsonb")
@@ -62,4 +67,6 @@ public class VendorEntity {
         this.vendorName = vendorName;
         this.slug = slug;
     }
+
+
 }
