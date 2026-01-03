@@ -1,6 +1,8 @@
 package com.myapp.kinesis.modules.resource.controller;
 
 import com.myapp.kinesis.common.dto.ApiResponse;
+import com.myapp.kinesis.modules.resource.dto.ResourceAvailabilityRequest;
+import com.myapp.kinesis.modules.resource.dto.ResourceAvailabilityResponse;
 import com.myapp.kinesis.modules.resource.dto.ResourceRequest;
 import com.myapp.kinesis.modules.resource.dto.ResourceResponse;
 import com.myapp.kinesis.modules.resource.service.ResourceService;
@@ -11,6 +13,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.UUID;
 
 /**
  * REST Controller for managing Resources (Staff, Rooms, Equipment).
@@ -59,4 +62,31 @@ public class ResourceController {
 
     // We will add @PutMapping("/{id}") and @DeleteMapping("/{id}")
     // endpoints here in a future phase.
+    
+    
+    /**
+     * Set resource unavailability (vacation, break, maintenance)
+     */
+    @PostMapping("/{resourceId}/availability")
+    public ResponseEntity<ApiResponse<ResourceAvailabilityResponse>> setUnavailability(
+            @PathVariable UUID resourceId,
+            @Valid @RequestBody ResourceAvailabilityRequest request) {
+        
+        ResourceAvailabilityResponse response = resourceService.setUnavailability(request);
+        return new ResponseEntity<>(
+            ApiResponse.success(response),
+            HttpStatus.CREATED
+        );
+    }
+
+    /**
+     * Get all unavailability periods for a resource
+     */
+    @GetMapping("/{resourceId}/availability")
+    public ResponseEntity<ApiResponse<List<ResourceAvailabilityResponse>>> getUnavailability(
+            @PathVariable UUID resourceId) {
+        
+        List<ResourceAvailabilityResponse> periods = resourceService.getUnavailability(resourceId);
+        return ResponseEntity.ok(ApiResponse.success(periods));
+    }
 }
