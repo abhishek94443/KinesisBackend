@@ -8,6 +8,8 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -74,4 +76,7 @@ public class ServiceEntity {
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "metadata", columnDefinition = "jsonb")
     private String metadata;
+
+    @OneToMany(mappedBy = "service", fetch = FetchType.LAZY)
+    private List<ServiceResourceEntity> serviceResources = new ArrayList<>();
 }

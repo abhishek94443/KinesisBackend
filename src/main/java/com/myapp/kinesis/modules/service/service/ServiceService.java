@@ -115,11 +115,12 @@ public class ServiceService {
     public List<ServiceResponseDto> getServicesForCurrentVendor() {
         UUID vendorId = tenantContext.getVendorId();
 
+        // Use the optimized JOIN FETCH method instead of the loop
         return serviceRepository.findAllByVendorId(vendorId).stream()
                 .map(service -> {
-                    // This is an N+1 query. We will fix this later with an optimized query.
-                    List<ServiceResourceEntity> links = serviceResourceRepository.findAllByServiceId(service.getId());
-                    return ServiceResponseDto.fromEntity(service, links);
+                    // Fixed: N+1 Query
+                    // Use the already-fetched list from the entity
+                    return ServiceResponseDto.fromEntity(service, service.getServiceResources());
                 })
                 .collect(Collectors.toList());
     }
